@@ -6,6 +6,10 @@ from enum import IntEnum
 GRAVITY = 9.81
 FEET2METER = 0.3048
 METER2FEET = 1/FEET2METER
+POUND2KILOGRAM = 0.453592
+KG2POUND = 1 / POUND2KILOGRAM
+HP2WATT = 735.499
+WATT2HP = 1/HP2WATT
 
 class Airfoil:
     def __init__(self, name, a2d=None, alpha_perdida=None):
@@ -82,12 +86,21 @@ class Helicopter:
     def __init__(self, rotor=None, engine=None, weight=None,):
         self.rotor = rotor if rotor else self.Rotor()
         self.weight = weight
+        self.disk_loading = self.weight / self.rotor.area
         self.f = 0.8 * (self.weight/1000.0)**(2.0/3.0) # equivalent plate's surface
         self.flight_condition = self.FlightCondition(0.0, 0.0)
         self.engine = engine
 
     def coeficiente_de_traccion_pf(self, density):
         return (self.weight * GRAVITY) / (density * self.rotor.area * self.rotor.tip_speed**2)
+
+    def coeficiente_de_traccion_pf_max(self, density):
+        # TODO: este valor en realidad depende de la entrada en perdida de las palas del rotor.
+        # a falta herramientas para calcularlo, asumimos el valor de 1.4, tomado de los graficos
+        # de Ct/solidity vs Cq/solidity, para distintos valores de alabeo, solidez, y mach de
+        # de divergencia, que se encuentran al final del capitulo 1 de "Helicopter performance,
+        # stability, and control".
+        return 1.4*self.coeficiente_de_traccion_pf(density)
 
     def coeficiente_de_potencia_inducida_pf(self, density):
         return np.sqrt(2.0)/2.0 * self.coeficiente_de_traccion_pf(density)**(3.0/2.0)
@@ -183,17 +196,36 @@ class Helicopter:
 
     def velocidad_de_potencia_minima(self, density, vel_guess=10):
         func = lambda vel: self.potencia_necesaria(vel, density)
-        rta = fmin(func, vel_guess)
+        rta = fmin(func, vel_guess, disp=False)
         return rta[0]
 
     def velocidad_de_maximo_alcance(self, density, vel_guess=10):
         den = density if density else self.flight_condition.density
         func = lambda vel: self.potencia_necesaria(vel, den) / vel
-        xopt, fopt = fmin(func, vel_guess)
-        return (xopt, fopt)
+        xopt = fmin(func, vel_guess, disp=False)
+        return xopt
 
     def velocidad_autorotacion(self, velocity, density):
         return self.potencia_necesaria(velocity, density) / (self.weight * GRAVITY)
+
+    def tiempo_de_punto_fijo_equivalente(self, altura):
+        """ Extraido de "Helicopter Performance, Stability and Control",
+         Capitulo 4, pag. 363, Prouty. A su vez, el libro hace referencia a
+         "High Energy Rotor System", Wood, AHS 32nd Forum, 1976"""
+        _, _, _, _, density, _, _ = atmosfera_estandar('altura', altura)
+        return self.rotor.inertia * self.rotor.angular_velocity**2 * \
+        (1 - self.coeficiente_de_traccion_pf(density=density) /
+         (0.8*self.coeficiente_de_traccion_pf_max(density=density)))\
+        / (1.1e3*self.engine.potencia_disponible(altura) * WATT2HP)
+
+    def indice_de_autorotacion(self, density):
+        """ Indice de autorotacion en ft**3/lb.
+            Extraido de "Helicopter Performance, Stability and Control",
+            Capitulo 4, pag. 363, Prouty. A su vez, el libro hace referencia a
+            "A Simple Autorotative Flare Index", Fradenburgh, JAHS 29-3, 1984 """
+        _, _, _, _, density0, _, _ = atmosfera_estandar('altura', 0)
+        return (self.rotor.inertia * self.rotor.angular_velocity**2 / self.weight) \
+                * (density / density0 / self.disk_loading) * ( METER2FEET**3 / POUND2KILOGRAM)
 
 
     def velocidad_de_autorotacion_minima(self, density, vel_guess=10):
@@ -204,29 +236,29 @@ class Helicopter:
     def potencia_excedente(self, velocity, altura):
         vel = velocity if velocity else self.flight_condition.velocity
         h = altura if altura else self.flight_condition.density
-        den = atmosfera_estandar('altura',h)
-        pot_nec = self.potencia_necesaria(vel,den)
+        _, _, _, _, den, _, _ = atmosfera_estandar('altura', h)
+        pot_nec = self.potencia_necesaria(vel, den)
         pot_disp = self.engine.potencia_disponible(h)
         return pot_disp - pot_nec
 
     def traccion_necesaria(self, velocity, density):
         resistencia = 0.5*velocity**2*density*self.f
-        return np.sqrt(self.weight**2+resistencia**2)
+        return np.sqrt((self.weight * GRAVITY)**2+resistencia**2)
 
     def velocidad_de_ascenso(self, velocity, altura):
         vel = velocity if velocity else self.flight_condition.velocity
         h = altura if altura else self.flight_condition.density
-        den = atmosfera_estandar('altura',h)
-        deltaP = self.potencia_excedente(vel, den)
+        _, _, _, _, den, _, _ = atmosfera_estandar('altura', h)
+        deltaP = self.potencia_excedente(vel, h)
         traccion = self.traccion_necesaria(vel, den)
         vel_ind_0 = self.velocidad_inducida_0(den)
         return deltaP/traccion * (2*vel_ind_0 + deltaP/traccion)\
-               /(vel_ind_0 + deltaP/traccion)
+               / (vel_ind_0 + deltaP/traccion)
 
-    def techo_practico(self, velocity, velocidad_umbral=0.5):
+    def techo_practico(self, velocity, velocidad_umbral=0.5, h_guess=15000):
         vel = velocity if velocity else self.flight_condition.velocity
         func = lambda altura: self.velocidad_de_ascenso(vel, altura) - velocidad_umbral
-        techo_practico, _ = fsolve(func, 5000, xtol=1e-12)
+        techo_practico = fsolve(func, x0=h_guess, xtol=1e-12)
         return techo_practico
 
     def alpha_PTP(self, velocity=None, density=None):
@@ -267,17 +299,53 @@ class Helicopter:
                       2 * self.lambda_pasante(vel, den)) /
                 (self.rotor.blade.Fp ** 2 + 3 / 2 * mu ** 2))
 
-    def alpha_tip_90(self, velocity=None, density=None):
+    def alpha_tip_90(self, radius, velocity=None, density=None):
+        """" No se usa por el momento, pero se podria usar para calcular
+        el radio de entrada en perdida"""
         den = density if density else self.flight_condition.density
         vel = velocity if velocity else self.flight_condition.velocity
         mu = vel/self.rotor.tip_speed
-        return (1 / (1 + mu) * (self.theta_0(vel, den) + self.rotor.blade.twist -
-                                self.aleteo_long(vel, den) -
-                                self.lambda_inducido(vel, den) +
-                                mu * (self.alpha_PTP(vel, den) +
+        return (1 / (radius + mu) * (self.theta_0(vel, den) +
+                                     self.rotor.blade.twist*radius -
+                                    self.aleteo_long(vel, den) -
+                                    self.lambda_inducido(vel, den) +
+                                    mu * (self.alpha_PTP(vel, den) +
                                       self.theta_0(vel, den) +
-                                      self.rotor.blade.twist -
+                                      self.rotor.blade.twist * radius -
                                       self.aleteo_long(vel, den))))
 
+    def B(self, velocity, density):
+        mu = velocity / self.rotor.angular_velocity / self.rotor.radius
+        return self.theta_0(velocity, density) - self.rotor.blade.airfoil.alpha_perdida \
+               + self.aleteo_long(velocity, density) - mu * self.rotor.blade.twist
 
+    def C(self, velocity, density):
+        mu = velocity / self.rotor.angular_velocity / self.rotor.radius
+        return mu*(self.alpha_PTP(velocity, density)+self.rotor.blade.airfoil.alpha_perdida)\
+                - self.lambda_inducido(velocity, density) - mu*self.theta_0(velocity, density)\
+                - mu*self.aleteo_long(velocity, density)
+
+    def stall_relative_radius(self, velocity, density):
+        discriminant = self.B(velocity, density)**2 -\
+                        4*self.rotor.blade.twist*self.C(velocity, density)
+        if discriminant > 0:
+            return (np.sqrt(discriminant) - self.B(velocity, density))\
+                   / (2*self.rotor.blade.twist)
+        else:
+            return 1
+
+    def kp(self, velocity, density):
+        discriminante = self.B(velocity, density) / 2.0 / self.rotor.blade.twist
+        if -discriminante <= 1:
+            return -(discriminante + self.stall_relative_radius(velocity, density))\
+                     / (1 - self.stall_relative_radius(velocity, density))
+        else:
+            return 1
+
+    def delta_cp_stall(self, velocity, density):
+        mu = velocity / self.rotor.angular_velocity / self.rotor.radius
+        return self.kp(velocity, density) * self.rotor.solidity / 24.0 / np.pi \
+               * (1-mu)**2 \
+               * (1 - self.stall_relative_radius(velocity, density))\
+               * np.sqrt(1 - self.stall_relative_radius(velocity, density)**2)
 
