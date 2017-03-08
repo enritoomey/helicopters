@@ -94,13 +94,13 @@ class Helicopter:
     def coeficiente_de_traccion_pf(self, density):
         return (self.weight * GRAVITY) / (density * self.rotor.area * self.rotor.tip_speed**2)
 
-    def coeficiente_de_traccion_pf_max(self, density):
+    def coeficiente_de_traccion_pf_max(self):
         # TODO: este valor en realidad depende de la entrada en perdida de las palas del rotor.
         # a falta herramientas para calcularlo, asumimos el valor de 1.4, tomado de los graficos
         # de Ct/solidity vs Cq/solidity, para distintos valores de alabeo, solidez, y mach de
         # de divergencia, que se encuentran al final del capitulo 1 de "Helicopter performance,
         # stability, and control".
-        return 1.4*self.coeficiente_de_traccion_pf(density)
+        return 0.165
 
     def coeficiente_de_potencia_inducida_pf(self, density):
         return np.sqrt(2.0)/2.0 * self.coeficiente_de_traccion_pf(density)**(3.0/2.0)
