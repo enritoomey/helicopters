@@ -140,11 +140,23 @@ class Helicopter:
         return 0.5 * density * self.f * vi0**3 * (np.sqrt(1+0.25*(velocity/vi0)**4)
                                                   + 0.5 * (velocity/vi0)**2)**1.5
 
-    def potencia_necesaria(self, velocity, density, coeff_rotor_anticupla=1.1):
+    def potencia_necesaria_base(self, velocity, density):
         pi = self.potencia_inducida(velocity, density)
         p0 = self.potencia_parasita(velocity, density)
         pfus = self.potencia_fuselaje(velocity, density)
-        return coeff_rotor_anticupla*(pi + p0 + pfus)
+        return pi + p0 + pfus
+
+    def potencia_motor_anticupla(self, velocity, density):
+        return 0.1*self.potencia_necesaria_base(velocity, density)
+
+    def potencia_necesaria(self, velocity, density):
+        pi = self.potencia_inducida(velocity, density)
+        p0 = self.potencia_parasita(velocity, density)
+        pfus = self.potencia_fuselaje(velocity, density)
+        pacc = self.potencia_motor_anticupla(velocity, density)
+        pstall = self.potencia_stall(velocity, density)
+        pcomp = self.potencia_compressibilidad(velocity, density)
+        return pi + p0 + pfus + pacc + pstall + pcomp
 
     def coeficiente_de_potencia_inducida(self, velocity, density):
         vel = velocity if velocity else self.flight_condition.velocity
@@ -182,11 +194,23 @@ class Helicopter:
         return self.coeficiente_de_potencia_parasita(vel, den) / \
                self.coeficiente_de_potencia_inducida_pf(den)
 
+    def coeficieciente_de_potencia_necesaria_base(self, velocity, density):
+        vel = velocity if velocity else self.flight_condition.velocity
+        den = density if density else self.flight_condition.density
+        pot_nec = self.potencia_necesaria_base(vel, den)
+        return pot_nec / (den * self.rotor.area * self.rotor.tip_speed ** 3)
+
     def coeficieciente_de_potencia_necesaria(self, velocity, density):
         vel = velocity if velocity else self.flight_condition.velocity
         den = density if density else self.flight_condition.density
         pot_nec = self.potencia_necesaria(vel, den)
         return pot_nec / (den * self.rotor.area * self.rotor.tip_speed ** 3)
+
+    def coeficiente_de_potencia_reducida_necesaria_base(self, velocity=None, density=None):
+        vel = velocity if velocity else self.flight_condition.velocity
+        den = density if density else self.flight_condition.density
+        return self.coeficieciente_de_potencia_necesaria_base(vel, den) / \
+               self.coeficiente_de_potencia_inducida_pf(den)
 
     def coeficiente_de_potencia_reducida_necesaria(self, velocity=None, density=None):
         vel = velocity if velocity else self.flight_condition.velocity
@@ -215,7 +239,7 @@ class Helicopter:
         _, _, _, _, density, _, _ = atmosfera_estandar('altura', altura)
         return self.rotor.inertia * self.rotor.angular_velocity**2 * \
         (1 - self.coeficiente_de_traccion_pf(density=density) /
-         (0.8*self.coeficiente_de_traccion_pf_max(density=density)))\
+         (0.8*self.coeficiente_de_traccion_pf_max()))\
         / (1.1e3*self.engine.potencia_disponible(altura) * WATT2HP)
 
     def indice_de_autorotacion(self, density):
@@ -265,7 +289,8 @@ class Helicopter:
         den = density if density else self.flight_condition.density
         vel = velocity if velocity else self.flight_condition.velocity
         mu = vel/self.rotor.tip_speed
-        return self.f*mu**2 / (2*self.rotor.blade.area*self.coeficiente_de_traccion(vel, den))
+        return - self.f * mu**2 / (2*self.rotor.blade.area *
+            (self.coeficiente_de_traccion_pf(den)/self.rotor.solidity))
 
     def lambda_pasante(self, velocity=None, density=None):
         den = density if density else self.flight_condition.density
@@ -277,13 +302,19 @@ class Helicopter:
         den = density if density else self.flight_condition.density
         vel = velocity if velocity else self.flight_condition.velocity
         mu = vel/self.rotor.tip_speed
-        return ((12 / self.rotor.blade.airfoil.a2d * (self.rotor.blade.Fp ** 2 / 3 + mu ** 2 / 2)\
-            * self.coeficiente_de_traccion(vel, density) / self.rotor.solidity
-            - self.rotor.blade.Fp ** 2 / 2 * (self.rotor.blade.Fp ** 4
-            + 3 / 2 * mu ** 2 * (mu ** 2 - self.rotor.blade.Fp ** 2)) * self.rotor.blade.twist
-            - (self.rotor.blade.Fp ** 4 - mu ** 2 / 2) * self.lambda_pasante(vel, den))
-            / (self.rotor.blade.Fp * (2 / 3 * self.rotor.blade.Fp ** 4
-            - 3 / 2 * mu ** 2 * self.rotor.blade.Fp ** 2 + 3 / 2 * mu ** 4)))
+        return (4/self.rotor.blade.airfoil.a2d * (1 + 3/2*mu**2 - 5/24*mu**4)
+                * self.coeficiente_de_traccion(velocity, den)/ self.rotor.solidity
+                - (1 - 3/2*mu**2 + 1/4*mu**4)*self.rotor.blade.twist/2
+                - (1 + 13/24*mu**4) * self.lambda_pasante(velocity,den))\
+            / (3/2 - 3/2*mu**2 - 8/9/np.pi*mu**3 + 25/36*mu**4)
+
+        # return ((12 / self.rotor.blade.airfoil.a2d * (self.rotor.blade.Fp ** 2 / 3 + mu ** 2 / 2)\
+        #     * self.coeficiente_de_traccion(vel, density) / self.rotor.solidity
+        #     - self.rotor.blade.Fp ** 2 / 2 * (self.rotor.blade.Fp ** 4
+        #     + 3 / 2 * mu ** 2 * (mu ** 2 - self.rotor.blade.Fp ** 2)) * self.rotor.blade.twist
+        #     - (self.rotor.blade.Fp ** 4 - mu ** 2 / 2) * self.lambda_pasante(vel, den))
+        #     / (self.rotor.blade.Fp * (2 / 3 * self.rotor.blade.Fp ** 4
+        #     - 3 / 2 * mu ** 2 * self.rotor.blade.Fp ** 2 + 3 / 2 * mu ** 4)))
 
     def theta_34(self, velocity=None, density=None):
         den = density if density else self.flight_condition.density
@@ -320,7 +351,7 @@ class Helicopter:
                + self.aleteo_long(velocity, density) - mu * self.rotor.blade.twist
 
     def C(self, velocity, density):
-        mu = velocity / self.rotor.angular_velocity / self.rotor.radius
+        mu = velocity / self.rotor.tip_speed
         return mu*(self.alpha_PTP(velocity, density)+self.rotor.blade.airfoil.alpha_perdida)\
                 - self.lambda_inducido(velocity, density) - mu*self.theta_0(velocity, density)\
                 - mu*self.aleteo_long(velocity, density)
@@ -332,7 +363,7 @@ class Helicopter:
             return (np.sqrt(discriminant) - self.B(velocity, density))\
                    / (2*self.rotor.blade.twist)
         else:
-            return 1
+            return 0
 
     def kp(self, velocity, density):
         discriminante = self.B(velocity, density) / 2.0 / self.rotor.blade.twist
@@ -344,8 +375,42 @@ class Helicopter:
 
     def delta_cp_stall(self, velocity, density):
         mu = velocity / self.rotor.angular_velocity / self.rotor.radius
-        return self.kp(velocity, density) * self.rotor.solidity / 24.0 / np.pi \
+        dcp =  self.kp(velocity, density) * self.rotor.solidity / 24.0 / np.pi \
                * (1-mu)**2 \
                * (1 - self.stall_relative_radius(velocity, density))\
                * np.sqrt(1 - self.stall_relative_radius(velocity, density)**2)
+        if dcp > 0:
+            return dcp
+        else:
+            return 0
 
+    def potencia_stall(self, velocity, density):
+        return self.delta_cp_stall(velocity, density)\
+               * (density * self.rotor.area * self.rotor.tip_speed ** 3)
+
+    def mach_tip(self, altura):
+        _, _, _, _, _, _, vson = atmosfera_estandar('altura', altura)
+        return self.rotor.tip_speed / vson
+
+    def mach_critico_simple(self, alpha):
+        """" Ecuacion lineal simple (falta fuente)"""
+        return 0.7264957 - 2.44 * alpha
+
+    def delta_mach_divergence(self, velocity, altura):
+        _, _, _, _, density, _, _ = atmosfera_estandar('altura', altura)
+        mu = velocity / self.rotor.tip_speed
+        mach_tip = self.mach_tip(altura)
+        alpha = self.alpha_tip_90(radius=1, velocity=velocity, density=density)
+        return mach_tip * (1 + mu) - self.mach_critico_simple(alpha) - 0.06
+
+    def delta_cp_mach(self, velocity, density):
+        dcp = self.rotor.solidity * (0.012 * self.delta_mach_divergence(velocity, density)
+                                + 0.1 * self.delta_mach_divergence(velocity, density)**3)
+        if dcp > 0:
+            return dcp
+        else:
+            return 0
+
+    def potencia_compressibilidad(self, velocity, density):
+        return self.delta_cp_mach(velocity, density) \
+               * (density * self.rotor.area * self.rotor.tip_speed ** 3)
