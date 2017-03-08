@@ -123,8 +123,8 @@ class Helicopter:
         den = density if density else self.flight_condition.density
         mu = vel/self.rotor.tip_speed
         return self.coeficiente_de_traccion_pf(den) * np.sqrt(1 +
-                    (self.f * mu ** 2 / 2 / self.rotor.blade.area
-                     / self.coeficiente_de_traccion_pf(den)/self.rotor.solidity))
+                    ((self.f * mu ** 2 / 2) / (self.rotor.blade.area
+                     * self.coeficiente_de_traccion_pf(den)/self.rotor.solidity ) )**2)
 
     def potencia_inducida(self, velocity, density):
         vi = self.velocidad_inducida(velocity, density)
