@@ -12,7 +12,7 @@ HP2WATT = 735.499
 WATT2HP = 1/HP2WATT
 
 class Airfoil:
-    def __init__(self, name, a2d=None, alpha_perdida=None):
+    def __init__(self, name='unidentified', a2d=None, alpha_perdida=None):
         self.name = name
         self.a2d = a2d
         self.alpha_perdida = alpha_perdida
@@ -83,8 +83,9 @@ class Helicopter:
             self.temperature = atmospheric_data[3]
             self.speed_of_sound = atmospheric_data[6]
 
-    def __init__(self, rotor=None, engine=None, weight=None,):
+    def __init__(self, rotor=None, tail_rotor=None, engine=None, weight=None,):
         self.rotor = rotor if rotor else self.Rotor()
+        self.tail_rotor = tail_rotor if tail_rotor else self.Rotor()
         self.weight = weight
         self.disk_loading = self.weight / self.rotor.area
         self.f = 0.8 * (self.weight/1000.0)**(2.0/3.0) # equivalent plate's surface
