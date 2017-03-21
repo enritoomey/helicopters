@@ -2,6 +2,7 @@ import numpy as np
 from atmosfera_estandar import atmosfera_estandar
 from scipy.optimize import fmin, fsolve
 from enum import IntEnum
+from airfoil_characteristics import Airfoil
 
 GRAVITY = 9.81
 FEET2METER = 0.3048
@@ -370,12 +371,12 @@ class Helicopter:
 
     def B(self, velocity, density):
         mu = velocity / self.rotor.angular_velocity / self.rotor.radius
-        return self.theta_0(velocity, density) - self.rotor.blade.airfoil.alpha_perdida \
+        return self.theta_0(velocity, density) - self.rotor.blade.airfoil.alpha_cl_max \
                + self.aleteo_long(velocity, density) - mu * self.rotor.blade.twist
 
     def C(self, velocity, density):
         mu = velocity / self.rotor.tip_speed
-        return mu*(self.alpha_PTP(velocity, density)+self.rotor.blade.airfoil.alpha_perdida)\
+        return mu*(self.alpha_PTP(velocity, density)+self.rotor.blade.airfoil.alpha_cl_max)\
                 - self.lambda_inducido(velocity, density) - mu*self.theta_0(velocity, density)\
                 - mu*self.aleteo_long(velocity, density)
 
