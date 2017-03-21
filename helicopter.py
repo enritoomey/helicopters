@@ -12,15 +12,16 @@ KG2POUND = 1 / POUND2KILOGRAM
 HP2WATT = 735.499
 WATT2HP = 1/HP2WATT
 
-class Airfoil:
-    def __init__(self, name='unidentified', a2d=None, alpha0=None, alpha_perdida=None):
+class Airfoil_old:
+    def __init__(self, name='unidentified', a2d=None, alpha0=None, alpha_cl_max=None):
         self.name = name
         self.a2d = a2d
-        self.alpha_perdida = alpha_perdida
+        self.alpha_cl_max = alpha_cl_max
         self.alpha0 = alpha0
 
     def load_airfoil_data(self, airfoil_name):
         pass
+
 
 #TODO: def swirl_thrust_loss():
 
