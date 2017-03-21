@@ -12,10 +12,11 @@ HP2WATT = 735.499
 WATT2HP = 1/HP2WATT
 
 class Airfoil:
-    def __init__(self, name='unidentified', a2d=None, alpha_perdida=None):
+    def __init__(self, name='unidentified', a2d=None, alpha0=None, alpha_perdida=None):
         self.name = name
         self.a2d = a2d
         self.alpha_perdida = alpha_perdida
+        self.alpha0 = alpha0
 
     def load_airfoil_data(self, airfoil_name):
         pass
@@ -41,6 +42,9 @@ class Helicopter:
                 self.cd0 = cd0
                 self.area = self.chord * self.length
 
+            def local_twist(self, r):
+                return self.twist * r/self.length
+
         def __init__(self, blade=None, number_of_blades=None, inertia=None, angular_velocity=None):
             self.blade = blade if blade else self.Blade()
             self.number_of_blades = number_of_blades
@@ -51,7 +55,25 @@ class Helicopter:
             self.solidity = self.number_of_blades * self.blade.chord / (self.radius * np.pi)
             self.area = np.pi * self.radius**2
             self.blade_area = self.number_of_blades * self.blade.area
-            self.tip_speed = self.angular_velocity * self.radius
+            if self.angular_velocity:
+                self.tip_speed = self.angular_velocity * self.radius
+            else:
+                self.tip_speed = None
+
+        def a2d_corrected(self, r, height):
+            _, _, _, _, _, _, vson = atmosfera_estandar('altura', height)
+            local_speed = self.angular_velocity * r * self.radius
+            local_mach = local_speed / vson
+            return self.blade.airfoil.a2d / np.sqrt(1-local_mach**2)
+
+        def induce_angle(self, r, theta, height):
+            local_angle = self.blade.local_twist(r) - self.blade.airfoil.alpha0 + theta
+            return self.a2d_corrected(r,height)*self.solidity / (16*r) *\
+                   (-1 * np.sqrt(1 + 32*r*local_angle)/self.a2d_corrected(r,height)/self.solidity)
+
+        def local_angle(self, r, theta, height):
+            return self.blade.local_twist(r) -\
+                   np.arctan(self.induce_angle(r, theta, height)) + self.blade.airfoil.alpha0
 
     class Engine:
         def __init__(self, engine_type, potencia_maxima, ):
