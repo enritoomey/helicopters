@@ -79,6 +79,22 @@ class Helicopter:
             return self.blade.local_twist(r) -\
                    np.arctan(self.induce_angle(r, theta, height)) + self.blade.airfoil.alpha0
 
+        def local_reynold(self, r, height):
+            speed = self.tip_speed*r
+            chord = self.blade.chord
+            _, _, _, _, den, mu, _ = atmosfera_estandar('altura', height)
+            return den*chord*speed/mu
+
+        def local_cl(self, r, theta, height):
+            reynold = self.local_reynold(r,height)
+            alpha = self.local_angle(r, theta, height)
+            return self.blade.airfoil.cl_aoa(alpha, reynold)
+
+        def local_cd(self, r, theta, height):
+            reynold = self.local_reynold(r, height)
+            cl = self.local_cl(r, theta, height)
+            return self.blade.airfoil.cd_cl(cl, reynold)
+
         def wake_rotation_factor(self, input):
             "Look up for function definition in prouty"
             input_points = np.arange(start=0, stop=0.5, step=0.005)
