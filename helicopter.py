@@ -44,6 +44,7 @@ class Helicopter:
                 self.Fp = blade_tip_lost_factor
                 self.cd0 = cd0
                 self.area = self.chord * self.length
+                self.x0 = 0.0
 
             def local_twist(self, r):
                 return self.twist * r/self.length
