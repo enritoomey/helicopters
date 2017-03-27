@@ -1,6 +1,7 @@
 import numpy as np
 from atmosfera_estandar import atmosfera_estandar
 from scipy.optimize import fmin, fsolve
+from scipy import interpolate
 from enum import IntEnum
 from airfoil_characteristics import Airfoil
 
@@ -76,6 +77,23 @@ class Helicopter:
         def local_angle(self, r, theta, height):
             return self.blade.local_twist(r) -\
                    np.arctan(self.induce_angle(r, theta, height)) + self.blade.airfoil.alpha0
+
+        def wake_rotation_factor(self, input):
+            "Look up for function definition in prouty"
+            input_points = np.arange(start=0, stop=0.5, step=0.005)
+            output_points = np.array([0, 0.0165, 0.027, 0.0395, 0.049, 0.060,
+                                      0.070, 0.080, 0.090, 0.100, 0.110])
+            spline = interpolate.splrep(input_points, output_points, s=0)
+            return interpolate.splev(input, spline, der=0)
+
+        def tip_vortex_interference(self, input):
+            "Look up for function definition in prouty"
+            input_points = np.arange(start=0, stop=1.2, step=0.1)
+            output_points = np.array([0.0, 0.945, 0.970, 0.995, 1.015,
+                                      1.030, 1.040, 1.050, 1.060, 1.065,
+                                      1.070, 1.073, 1.077, 1.080])
+            spline = interpolate.splrep(input_points, output_points, s=0)
+            return interpolate.splev(input, spline, der=0)
 
     class Engine:
         def __init__(self, engine_type, potencia_maxima, ):
